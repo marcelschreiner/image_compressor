@@ -189,6 +189,7 @@
             cursor: ew-resize;
             user-select: none;
             -webkit-user-select: none;
+            touch-action: none; /* Wichtig für saubere Pointer-Events auf Mobile */
         }
 
         .cmp-img {
@@ -267,6 +268,12 @@
             transition: opacity 0.2s;
         }
         #dl-btn:hover { opacity: 0.9; }
+        
+        #dl-btn.disabled {
+            opacity: 0.4;
+            pointer-events: none;
+            cursor: not-allowed;
+        }
 
         .loading-overlay {
             position: absolute;
@@ -304,13 +311,14 @@
             <div class="card">
                 <label class="lbl">Format</label>
                 <div class="fmt-btns">
-                    <button class="fmt-btn active" data-fmt="image/jpeg">JPG</button>
+                    <button class="fmt-btn" data-fmt="image/jpeg">JPG</button>
                     <button class="fmt-btn" data-fmt="image/png">PNG</button>
-                    <button class="fmt-btn" data-fmt="image/webp">WebP</button>
+                    <!-- WebP ist jetzt der Standard -->
+                    <button class="fmt-btn active" data-fmt="image/webp">WebP</button>
                 </div>
             </div>
             <div class="card">
-                <label class="lbl">Grösse (px)</label>
+                <label class="lbl">Max. Grösse (px)</label>
                 <div class="res-row">
                     <input type="number" id="w-input" class="res-inp" placeholder="W" min="1">
                     <span style="color:var(--muted)">×</span>
@@ -354,12 +362,11 @@
             </div>
         </div>
 
-        <a href="#" id="dl-btn" download="optimized.jpg">Optimiertes Bild speichern</a>
+        <a href="#" id="dl-btn" class="disabled" download="optimized.webp">Optimiertes Bild speichern</a>
         <button id="reset-btn" style="background:transparent; border:none; color:var(--muted); font-size:0.7rem; width:100%; margin-top:12px; cursor:pointer; text-transform:uppercase;">Anderes Bild wählen</button>
     </div>
 </div>
 
-<!-- Removed integrity attribute that was causing the script to be blocked by the browser -->
 <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
 
 <script>
@@ -395,7 +402,7 @@
     let state = {
         originalFile: null,
         baseName: 'image',
-        format: 'image/jpeg',
+        format: 'image/webp', // WebP als Default
         aspectRatio: 1,
         isProcessing: false,
         isSliding: false,
@@ -449,8 +456,11 @@
         
         els.cmpClipper.style.width = '50%';
         els.cmpHandle.style.left = '50%';
+        els.dlBtn.classList.add('disabled');
     };
 
+    // Verbessertes Drag & Drop
+    els.dropzone.ondragenter = (e) => { e.preventDefault(); els.dropzone.classList.add('drag'); };
     els.dropzone.ondragover = (e) => { e.preventDefault(); els.dropzone.classList.add('drag'); };
     els.dropzone.ondragleave = () => els.dropzone.classList.remove('drag');
     els.dropzone.ondrop = (e) => { 
@@ -506,6 +516,12 @@
 
     window.addEventListener('resize', () => { if (state.originalFile) syncSliderWidth(); });
 
+    // Speicher aufräumen, wenn der Tab geschlossen wird
+    window.addEventListener('beforeunload', () => {
+        if (state.origUrl) URL.revokeObjectURL(state.origUrl);
+        if (state.newUrl) URL.revokeObjectURL(state.newUrl);
+    });
+
     // --- 5. Core Logic ---
     async function handleFile(file) {
         if (!file) return;
@@ -552,6 +568,7 @@
     async function processImage() {
         if (!state.originalFile || state.isProcessing) return;
         state.isProcessing = true;
+        els.dlBtn.classList.add('disabled'); // Download während Verarbeitung sperren
         
         let actualProgress = 0;
         let simProgress = 0;
@@ -608,6 +625,9 @@
 
             els.dlBtn.href = state.newUrl;
             els.dlBtn.download = `${state.baseName}-optimized.${getFmtExt(state.format)}`;
+            
+            els.loader.innerText = 'Fertig!'; // Kurzes visuelles Feedback bei Erfolg
+            els.dlBtn.classList.remove('disabled'); // Download freigeben
 
         } catch (error) {
             console.error("Compression failed", error);
@@ -615,31 +635,36 @@
             els.newSize.style.color = '#e57373';
             els.sizeDiff.innerText = 'Fehler aufgetreten.';
             els.sizeDiff.style.color = '#e57373';
+            els.loader.innerText = 'Fehler!';
         } finally {
             state.isProcessing = false;
             clearInterval(progressInterval);
-            els.loader.style.display = 'none';
+            setTimeout(() => {
+                els.loader.style.display = 'none';
+            }, 300); // Zeigt "Fertig!" oder "Fehler!" für 300ms, bevor der Loader verschwindet
             els.newSize.classList.remove('pulsing');
         }
     }
 
-    // --- 6. Slider Interaction ---
+    // --- 6. Slider Interaction (Moderne Pointer-Events) ---
     const handleSlide = (e) => {
         if (!state.isSliding || els.outputSection.style.display !== 'block') return;
         const rect = els.cmpContainer.getBoundingClientRect();
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const percent = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+        
+        // PointerEvents liefern clientX direkt, ohne Unterscheidung zwischen Maus und Touch
+        const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
         
         els.cmpClipper.style.width = percent + '%';
         els.cmpHandle.style.left = percent + '%';
     };
 
-    els.cmpContainer.addEventListener('mousedown', () => state.isSliding = true);
-    els.cmpContainer.addEventListener('touchstart', () => state.isSliding = true, { passive: true });
-    window.addEventListener('mouseup', () => state.isSliding = false);
-    window.addEventListener('touchend', () => state.isSliding = false);
-    els.cmpContainer.addEventListener('mousemove', handleSlide);
-    els.cmpContainer.addEventListener('touchmove', handleSlide, { passive: true });
+    els.cmpContainer.addEventListener('pointerdown', (e) => {
+        state.isSliding = true;
+        els.cmpContainer.setPointerCapture(e.pointerId); // Hält den Fokus auch beim schnellen Ziehen
+    });
+    
+    window.addEventListener('pointerup', () => state.isSliding = false);
+    els.cmpContainer.addEventListener('pointermove', handleSlide);
 
 </script>
 </body>
