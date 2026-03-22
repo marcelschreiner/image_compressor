@@ -252,6 +252,11 @@
         font-weight: 700;
         margin-top: 16px;
         transition: opacity 0.2s;
+        /* Anpassungen für echten Button */
+        border: none;
+        font-family: inherit;
+        font-size: 1rem;
+        cursor: pointer;
     }
     .ms-image-compressor #dl-btn:hover { opacity: 0.9; }
     
@@ -343,7 +348,7 @@
             </div>
         </div>
 
-        <a href="#" id="dl-btn" class="disabled" data-umami-event="Bild Komprimiert" download="optimized.webp">Optimiertes Bild speichern</a>
+        <button id="dl-btn" class="disabled" data-umami-event="Bild Komprimiert">Optimiertes Bild speichern</button>
         <button id="reset-btn" style="background:transparent; border:none; color:var(--muted); font-size:0.7rem; width:100%; margin-top:12px; cursor:pointer; text-transform:uppercase;">Anderes Bild wählen</button>
     </div>
 </div>
@@ -428,6 +433,21 @@
     if(els.dropzone) els.dropzone.onclick = () => els.fileInput.click();
     if(els.fileInput) els.fileInput.onchange = (e) => handleFile(e.target.files[0]);
     
+    // Robuster Download Handler (Programmatisch, umgeht Webflow Link-Hijacking)
+    if(els.dlBtn) {
+        els.dlBtn.onclick = (e) => {
+            e.preventDefault();
+            if (els.dlBtn.classList.contains('disabled') || !state.newUrl) return;
+            
+            const tempLink = document.createElement('a');
+            tempLink.href = state.newUrl;
+            tempLink.download = `${state.baseName}-optimized.${getFmtExt(state.format)}`;
+            document.body.appendChild(tempLink);
+            tempLink.click();
+            document.body.removeChild(tempLink);
+        };
+    }
+
     if(els.resetBtn) els.resetBtn.onclick = (e) => {
         e.preventDefault();
         
@@ -631,9 +651,6 @@
             const saved = ((compressedBlob.size - state.originalFile.size) / state.originalFile.size) * 100;
             els.sizeDiff.innerText = (saved > 0 ? '+' : '') + saved.toFixed(1) + '%';
             els.sizeDiff.style.color = saved <= 0 ? '#81c784' : '#e57373';
-
-            els.dlBtn.href = state.newUrl;
-            els.dlBtn.download = `${state.baseName}-optimized.${getFmtExt(state.format)}`;
             
             els.loader.innerText = 'Fertig!';
             els.dlBtn.classList.remove('disabled');
