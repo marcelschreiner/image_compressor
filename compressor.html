@@ -153,7 +153,17 @@
             border-color: var(--accent);
         }
 
-        /* Stats */
+        /* Stats & Pulse Animation */
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.3; }
+            100% { opacity: 1; }
+        }
+
+        .pulsing {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
         .stat-val { font-size: 1.1rem; font-weight: 600; margin-bottom: 2px; }
         .stat-sub { font-size: 0.75rem; color: var(--muted); display: flex; justify-content: space-between; }
         .gold { color: var(--accent); }
@@ -347,6 +357,10 @@
     const dlBtn = document.getElementById('dl-btn');
     const loader = document.getElementById('loader');
     
+    // UI Elements for pulsing
+    const newSizeEl = document.getElementById('new-size');
+    const sizeDiffEl = document.getElementById('size-diff');
+
     let originalFile = null;
     let currentFormat = 'image/jpeg';
     let aspectRatio = 1;
@@ -438,6 +452,11 @@
         if (!originalFile || isProcessing) return;
         isProcessing = true;
         loader.style.display = 'flex';
+        
+        // Start Pulsing
+        newSizeEl.innerText = 'Berechne...';
+        newSizeEl.classList.add('pulsing');
+        sizeDiffEl.innerText = '';
 
         try {
             const options = {
@@ -455,14 +474,13 @@
             const newFmtName = currentFormat.split('/')[1].toUpperCase().replace('JPEG', 'JPG');
             document.getElementById('new-fmt').innerText = newFmtName;
             document.getElementById('img-after').style.backgroundImage = `url(${url})`;
-            document.getElementById('new-size').innerText = formatBytes(compressedBlob.size);
+            newSizeEl.innerText = formatBytes(compressedBlob.size);
             document.getElementById('new-dim').innerText = `${wInput.value} × ${hInput.value} px`;
             
             // Percentage calculation
             const saved = ((compressedBlob.size - originalFile.size) / originalFile.size) * 100;
-            const diffEl = document.getElementById('size-diff');
-            diffEl.innerText = (saved > 0 ? '+' : '') + saved.toFixed(1) + '%';
-            diffEl.style.color = saved <= 0 ? '#81c784' : '#e57373'; // Green if saved, red if larger
+            sizeDiffEl.innerText = (saved > 0 ? '+' : '') + saved.toFixed(1) + '%';
+            sizeDiffEl.style.color = saved <= 0 ? '#81c784' : '#e57373';
 
             dlBtn.href = url;
             const ext = currentFormat.split('/')[1].replace('jpeg', 'jpg');
@@ -470,9 +488,12 @@
 
         } catch (error) {
             console.error("Compression failed", error);
+            newSizeEl.innerText = 'Fehler';
         } finally {
             isProcessing = false;
             loader.style.display = 'none';
+            // Stop Pulsing
+            newSizeEl.classList.remove('pulsing');
         }
     }
 
