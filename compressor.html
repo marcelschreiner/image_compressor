@@ -189,7 +189,7 @@
             cursor: ew-resize;
             user-select: none;
             -webkit-user-select: none;
-            touch-action: none; /* Wichtig für saubere Pointer-Events auf Mobile */
+            touch-action: none;
         }
 
         .cmp-img {
@@ -313,7 +313,6 @@
                 <div class="fmt-btns">
                     <button class="fmt-btn" data-fmt="image/jpeg">JPG</button>
                     <button class="fmt-btn" data-fmt="image/png">PNG</button>
-                    <!-- WebP ist jetzt der Standard -->
                     <button class="fmt-btn active" data-fmt="image/webp">WebP</button>
                 </div>
             </div>
@@ -362,7 +361,7 @@
             </div>
         </div>
 
-        <a href="#" id="dl-btn" class="disabled" download="optimized.webp">Optimiertes Bild speichern</a>
+        <a href="#" id="dl-btn" class="disabled">Optimiertes Bild speichern</a>
         <button id="reset-btn" style="background:transparent; border:none; color:var(--muted); font-size:0.7rem; width:100%; margin-top:12px; cursor:pointer; text-transform:uppercase;">Anderes Bild wählen</button>
     </div>
 </div>
@@ -402,9 +401,10 @@
     let state = {
         originalFile: null,
         baseName: 'image',
-        format: 'image/webp', // WebP als Default
+        format: 'image/webp',
         aspectRatio: 1,
         isProcessing: false,
+        pendingProcess: false,
         isSliding: false,
         origUrl: null,
         newUrl: null
@@ -444,6 +444,10 @@
     
     els.resetBtn.onclick = (e) => {
         e.preventDefault();
+
+        els.imgBefore.style.backgroundImage = '';
+        els.imgAfter.style.backgroundImage = '';
+        
         if (state.origUrl) URL.revokeObjectURL(state.origUrl);
         if (state.newUrl) URL.revokeObjectURL(state.newUrl);
         
@@ -459,7 +463,6 @@
         els.dlBtn.classList.add('disabled');
     };
 
-    // Verbessertes Drag & Drop
     els.dropzone.ondragenter = (e) => { e.preventDefault(); els.dropzone.classList.add('drag'); };
     els.dropzone.ondragover = (e) => { e.preventDefault(); els.dropzone.classList.add('drag'); };
     els.dropzone.ondragleave = () => els.dropzone.classList.remove('drag');
@@ -516,8 +519,10 @@
 
     window.addEventListener('resize', () => { if (state.originalFile) syncSliderWidth(); });
 
-    // Speicher aufräumen, wenn der Tab geschlossen wird
+    // Kompletter Speicher-Cleanup beim Schliessen des Tabs
     window.addEventListener('beforeunload', () => {
+        els.imgBefore.style.backgroundImage = '';
+        els.imgAfter.style.backgroundImage = '';
         if (state.origUrl) URL.revokeObjectURL(state.origUrl);
         if (state.newUrl) URL.revokeObjectURL(state.newUrl);
     });
@@ -541,7 +546,10 @@
         state.originalFile = file;
         state.baseName = file.name.replace(/\.[^/.]+$/, "");
         
-        if (state.origUrl) URL.revokeObjectURL(state.origUrl);
+        if (state.origUrl) {
+            els.imgBefore.style.backgroundImage = '';
+            URL.revokeObjectURL(state.origUrl);
+        }
         state.origUrl = URL.createObjectURL(file);
         
         const img = new Image();
@@ -566,9 +574,16 @@
     }
 
     async function processImage() {
-        if (!state.originalFile || state.isProcessing) return;
+        if (!state.originalFile) return;
+        if (state.isProcessing) {
+            state.pendingProcess = true;
+            return;
+        }
+        
         state.isProcessing = true;
-        els.dlBtn.classList.add('disabled'); // Download während Verarbeitung sperren
+        state.pendingProcess = false;
+        
+        els.dlBtn.classList.add('disabled');
         
         let actualProgress = 0;
         let simProgress = 0;
@@ -607,7 +622,10 @@
 
             const compressedBlob = await imageCompression(state.originalFile, options);
             
-            if (state.newUrl) URL.revokeObjectURL(state.newUrl);
+            if (state.newUrl) {
+                els.imgAfter.style.backgroundImage = '';
+                URL.revokeObjectURL(state.newUrl);
+            }
             state.newUrl = URL.createObjectURL(compressedBlob);
             
             const actualImg = new Image();
@@ -626,8 +644,8 @@
             els.dlBtn.href = state.newUrl;
             els.dlBtn.download = `${state.baseName}-optimized.${getFmtExt(state.format)}`;
             
-            els.loader.innerText = 'Fertig!'; // Kurzes visuelles Feedback bei Erfolg
-            els.dlBtn.classList.remove('disabled'); // Download freigeben
+            els.loader.innerText = 'Fertig!';
+            els.dlBtn.classList.remove('disabled');
 
         } catch (error) {
             console.error("Compression failed", error);
@@ -641,17 +659,19 @@
             clearInterval(progressInterval);
             setTimeout(() => {
                 els.loader.style.display = 'none';
-            }, 300); // Zeigt "Fertig!" oder "Fehler!" für 300ms, bevor der Loader verschwindet
+            }, 300);
             els.newSize.classList.remove('pulsing');
+            
+            if (state.pendingProcess) {
+                processImage();
+            }
         }
     }
 
-    // --- 6. Slider Interaction (Moderne Pointer-Events) ---
+    // --- 6. Slider Interaction ---
     const handleSlide = (e) => {
         if (!state.isSliding || els.outputSection.style.display !== 'block') return;
         const rect = els.cmpContainer.getBoundingClientRect();
-        
-        // PointerEvents liefern clientX direkt, ohne Unterscheidung zwischen Maus und Touch
         const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
         
         els.cmpClipper.style.width = percent + '%';
@@ -660,7 +680,7 @@
 
     els.cmpContainer.addEventListener('pointerdown', (e) => {
         state.isSliding = true;
-        els.cmpContainer.setPointerCapture(e.pointerId); // Hält den Fokus auch beim schnellen Ziehen
+        els.cmpContainer.setPointerCapture(e.pointerId);
     });
     
     window.addEventListener('pointerup', () => state.isSliding = false);
