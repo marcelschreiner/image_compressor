@@ -179,7 +179,6 @@
             overflow: hidden;
             cursor: ew-resize;
             user-select: none;
-            /* Verhindert Textmarkierung beim Ziehen */
             -webkit-user-select: none;
         }
 
@@ -191,7 +190,6 @@
             background-size: cover;
             background-repeat: no-repeat;
             background-position: center;
-            /* Verhindert "Ghost-Dragging" des Bildes selbst */
             pointer-events: none;
         }
 
@@ -274,7 +272,6 @@
             text-transform: uppercase;
             letter-spacing: 0.1em;
         }
-
     </style>
 </head>
 <body>
@@ -355,207 +352,194 @@
 
 <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
 <script>
-    const fileInput = document.getElementById('file-input');
-    const dropzone = document.getElementById('dropzone');
-    const outputSection = document.getElementById('output-section');
-    const qSlider = document.getElementById('q-slider');
-    const qLabel = document.getElementById('q-label');
-    const wInput = document.getElementById('w-input');
-    const hInput = document.getElementById('h-input');
-    const dlBtn = document.getElementById('dl-btn');
-    const loader = document.getElementById('loader');
-    
-    // UI Elements for pulsing
-    const newSizeEl = document.getElementById('new-size');
-    const sizeDiffEl = document.getElementById('size-diff');
-
-    let originalFile = null;
-    let originalBaseName = 'image'; // Speichert den Namen ohne Endung
-    let currentFormat = 'image/jpeg';
-    let aspectRatio = 1;
-    let isProcessing = false;
-
-    // --- Comparison Slider Elements ---
-    const container = document.getElementById('cmp-container');
-    const clipper = document.getElementById('cmp-clipper');
-    const beforeImg = document.getElementById('img-before');
-    const handle = document.getElementById('cmp-handle');
-
-    // --- Events ---
-    dropzone.onclick = () => fileInput.click();
-    fileInput.onchange = (e) => handleFile(e.target.files[0]);
-
-    document.getElementById('reset-btn').onclick = () => location.reload();
-
-    dropzone.ondragover = (e) => { e.preventDefault(); dropzone.classList.add('drag'); };
-    dropzone.ondragleave = () => dropzone.classList.remove('drag');
-    dropzone.ondrop = (e) => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); };
-
-    qSlider.oninput = () => { qLabel.innerText = qSlider.value + '%'; };
-    qSlider.onchange = () => processImage();
-    
-    document.querySelectorAll('.fmt-btn').forEach(btn => {
-        btn.onclick = () => {
-            document.querySelector('.fmt-btn.active').classList.remove('active');
-            btn.classList.add('active');
-            currentFormat = btn.dataset.fmt;
-            processImage();
-        };
-    });
-
-    wInput.onchange = () => {
-        hInput.value = Math.round(wInput.value / aspectRatio);
-        processImage();
-    };
-    hInput.onchange = () => {
-        wInput.value = Math.round(hInput.value * aspectRatio);
-        processImage();
+    // --- 1. DOM Elements (Cached for Performance & Maintenance) ---
+    const els = {
+        dropzone: document.getElementById('dropzone'),
+        fileInput: document.getElementById('file-input'),
+        outputSection: document.getElementById('output-section'),
+        qSlider: document.getElementById('q-slider'),
+        qLabel: document.getElementById('q-label'),
+        wInput: document.getElementById('w-input'),
+        hInput: document.getElementById('h-input'),
+        dlBtn: document.getElementById('dl-btn'),
+        loader: document.getElementById('loader'),
+        newSize: document.getElementById('new-size'),
+        sizeDiff: document.getElementById('size-diff'),
+        origFmt: document.getElementById('orig-fmt'),
+        origSize: document.getElementById('orig-size'),
+        origDim: document.getElementById('orig-dim'),
+        newFmt: document.getElementById('new-fmt'),
+        newDim: document.getElementById('new-dim'),
+        imgAfter: document.getElementById('img-after'),
+        imgBefore: document.getElementById('img-before'),
+        cmpContainer: document.getElementById('cmp-container'),
+        cmpClipper: document.getElementById('cmp-clipper'),
+        cmpHandle: document.getElementById('cmp-handle'),
+        resetBtn: document.getElementById('reset-btn'),
+        fmtBtns: document.querySelectorAll('.fmt-btn')
     };
 
-    window.addEventListener('resize', () => {
-        if (originalFile) syncSliderWidth();
-    });
+    // --- 2. State Variables ---
+    let state = {
+        originalFile: null,
+        baseName: 'image',
+        format: 'image/jpeg',
+        aspectRatio: 1,
+        isProcessing: false,
+        isSliding: false
+    };
 
-    function syncSliderWidth() {
-        const width = container.offsetWidth;
-        beforeImg.style.width = width + 'px';
-    }
-
-    function formatBytes(bytes, decimals = 2) {
+    // --- 3. Helper Functions (DRY) ---
+    const getFmtExt = (mime) => mime.split('/')[1].replace('jpeg', 'jpg');
+    const getFmtName = (mime) => getFmtExt(mime).toUpperCase();
+    
+    const formatBytes = (bytes, decimals = 2) => {
         if (bytes === 0) return '0 Bytes';
         const k = 1024;
         const dm = decimals < 0 ? 0 : decimals;
         const sizes = ['Bytes', 'KB', 'MB', 'GB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-    }
+    };
 
-    // --- Logic ---
+    const syncSliderWidth = () => {
+        els.imgBefore.style.width = els.cmpContainer.offsetWidth + 'px';
+    };
+
+    // --- 4. Event Listeners ---
+    els.dropzone.onclick = () => els.fileInput.click();
+    els.fileInput.onchange = (e) => handleFile(e.target.files[0]);
+    els.resetBtn.onclick = () => location.reload();
+
+    els.dropzone.ondragover = (e) => { e.preventDefault(); els.dropzone.classList.add('drag'); };
+    els.dropzone.ondragleave = () => els.dropzone.classList.remove('drag');
+    els.dropzone.ondrop = (e) => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); };
+
+    els.qSlider.oninput = () => els.qLabel.innerText = els.qSlider.value + '%';
+    els.qSlider.onchange = () => processImage();
+    
+    els.fmtBtns.forEach(btn => {
+        btn.onclick = () => {
+            document.querySelector('.fmt-btn.active').classList.remove('active');
+            btn.classList.add('active');
+            state.format = btn.dataset.fmt;
+            processImage();
+        };
+    });
+
+    // Unify Dimension Inputs
+    const updateDimensions = (isWidthChanged) => {
+        if (isWidthChanged) els.hInput.value = Math.round(els.wInput.value / state.aspectRatio);
+        else els.wInput.value = Math.round(els.hInput.value * state.aspectRatio);
+        processImage();
+    };
+    els.wInput.onchange = () => updateDimensions(true);
+    els.hInput.onchange = () => updateDimensions(false);
+
+    window.addEventListener('resize', () => { if (state.originalFile) syncSliderWidth(); });
+
+    // --- 5. Core Logic ---
     async function handleFile(file) {
         if (!file || !file.type.startsWith('image/')) return;
-        originalFile = file;
-        
-        // Dateiname extrahieren (ohne Endung)
-        originalBaseName = file.name.replace(/\.[^/.]+$/, "");
+        state.originalFile = file;
+        state.baseName = file.name.replace(/\.[^/.]+$/, "");
         
         const img = new Image();
         img.src = URL.createObjectURL(file);
         await img.decode();
         
-        aspectRatio = img.width / img.height;
-        wInput.value = img.width;
-        hInput.value = img.height;
+        state.aspectRatio = img.width / img.height;
+        els.wInput.value = img.width;
+        els.hInput.value = img.height;
         
-        const origFmtName = file.type.split('/')[1].toUpperCase().replace('JPEG', 'JPG');
-        document.getElementById('orig-fmt').innerText = origFmtName;
-        document.getElementById('orig-size').innerText = formatBytes(file.size);
-        document.getElementById('orig-dim').innerText = `${img.width} × ${img.height} px`;
+        els.origFmt.innerText = getFmtName(file.type);
+        els.origSize.innerText = formatBytes(file.size);
+        els.origDim.innerText = `${img.width} × ${img.height} px`;
         
-        beforeImg.style.backgroundImage = `url(${img.src})`;
+        els.imgBefore.style.backgroundImage = `url(${img.src})`;
         
-        dropzone.style.display = 'none';
-        outputSection.style.display = 'block';
+        els.dropzone.style.display = 'none';
+        els.outputSection.style.display = 'block';
         
         syncSliderWidth();
         processImage();
     }
 
     async function processImage() {
-        if (!originalFile || isProcessing) return;
-        isProcessing = true;
+        if (!state.originalFile || state.isProcessing) return;
+        state.isProcessing = true;
         
         let actualProgress = 0;
         let simProgress = 0;
         
-        loader.innerText = 'Wird optimiert... 0%';
-        loader.style.display = 'flex';
-        // Start Pulsing
-        newSizeEl.innerText = 'Berechne...';
-        newSizeEl.classList.add('pulsing');
-        sizeDiffEl.innerText = '';
+        els.loader.innerText = 'Wird optimiert... 0%';
+        els.loader.style.display = 'flex';
+        els.newSize.innerText = 'Berechne...';
+        els.newSize.classList.add('pulsing');
+        els.sizeDiff.innerText = '';
 
-        // UX-Trick: Sanfter Fortschritt
         const progressInterval = setInterval(() => {
             if (simProgress < actualProgress) {
-                // Schnell aufholen, wenn die Library echte neue Daten liefert
                 simProgress += Math.max(1, Math.round((actualProgress - simProgress) / 2));
             } else if (simProgress < 95) {
-                // Langsam weiterzählen, damit das Tool nicht "tot" wirkt
                 simProgress += 1;
             }
-            loader.innerText = `Wird optimiert... ${simProgress}%`;
+            els.loader.innerText = `Wird optimiert... ${simProgress}%`;
         }, 120);
 
         try {
             const options = {
                 maxSizeMB: 10,
-                maxWidthOrHeight: Math.max(wInput.value, hInput.value),
+                maxWidthOrHeight: Math.max(els.wInput.value, els.hInput.value),
                 useWebWorker: true,
-                initialQuality: qSlider.value / 100,
-                fileType: currentFormat,
-                // Echten Fortschritt abgreifen
-                onProgress: (progress) => {
-                    actualProgress = progress;
-                }
+                initialQuality: els.qSlider.value / 100,
+                fileType: state.format,
+                onProgress: (progress) => { actualProgress = progress; }
             };
 
-            const compressedBlob = await imageCompression(originalFile, options);
+            const compressedBlob = await imageCompression(state.originalFile, options);
             const url = URL.createObjectURL(compressedBlob);
             
-            // Format & Size Update
-            const newFmtName = currentFormat.split('/')[1].toUpperCase().replace('JPEG', 'JPG');
-            document.getElementById('new-fmt').innerText = newFmtName;
-            document.getElementById('img-after').style.backgroundImage = `url(${url})`;
-            newSizeEl.innerText = formatBytes(compressedBlob.size);
-            document.getElementById('new-dim').innerText = `${wInput.value} × ${hInput.value} px`;
+            els.newFmt.innerText = getFmtName(state.format);
+            els.imgAfter.style.backgroundImage = `url(${url})`;
+            els.newSize.innerText = formatBytes(compressedBlob.size);
+            els.newDim.innerText = `${els.wInput.value} × ${els.hInput.value} px`;
             
-            // Percentage calculation
-            const saved = ((compressedBlob.size - originalFile.size) / originalFile.size) * 100;
-            sizeDiffEl.innerText = (saved > 0 ? '+' : '') + saved.toFixed(1) + '%';
-            sizeDiffEl.style.color = saved <= 0 ? '#81c784' : '#e57373';
+            const saved = ((compressedBlob.size - state.originalFile.size) / state.originalFile.size) * 100;
+            els.sizeDiff.innerText = (saved > 0 ? '+' : '') + saved.toFixed(1) + '%';
+            els.sizeDiff.style.color = saved <= 0 ? '#81c784' : '#e57373';
 
-            dlBtn.href = url;
-            const ext = currentFormat.split('/')[1].replace('jpeg', 'jpg');
-            // Nutze den Originalnamen!
-            dlBtn.download = `${originalBaseName}-optimized.${ext}`;
+            els.dlBtn.href = url;
+            els.dlBtn.download = `${state.baseName}-optimized.${getFmtExt(state.format)}`;
 
         } catch (error) {
             console.error("Compression failed", error);
-            newSizeEl.innerText = 'Fehler';
+            els.newSize.innerText = 'Fehler';
         } finally {
-            isProcessing = false;
-            clearInterval(progressInterval); // Timer stoppen
-            loader.style.display = 'none';
-            // Stop Pulsing
-            newSizeEl.classList.remove('pulsing');
+            state.isProcessing = false;
+            clearInterval(progressInterval);
+            els.loader.style.display = 'none';
+            els.newSize.classList.remove('pulsing');
         }
     }
 
-    // --- Slider Interaction Logic (Drag instead of Hover) ---
-    let isSliding = false;
-
-    // Start Dragging
-    container.addEventListener('mousedown', () => isSliding = true);
-    container.addEventListener('touchstart', () => isSliding = true, { passive: true });
-
-    // Stop Dragging (Window level so it stops even if mouse leaves container)
-    window.addEventListener('mouseup', () => isSliding = false);
-    window.addEventListener('touchend', () => isSliding = false);
-
-    const move = (e) => {
-        if (!isSliding || outputSection.style.display !== 'block') return;
-        
-        const rect = container.getBoundingClientRect();
+    // --- 6. Slider Interaction ---
+    const handleSlide = (e) => {
+        if (!state.isSliding || els.outputSection.style.display !== 'block') return;
+        const rect = els.cmpContainer.getBoundingClientRect();
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const x = clientX - rect.left;
-        const percent = Math.max(0, Math.min(100, (x / rect.width) * 100));
+        const percent = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
         
-        clipper.style.width = percent + '%';
-        handle.style.left = percent + '%';
+        els.cmpClipper.style.width = percent + '%';
+        els.cmpHandle.style.left = percent + '%';
     };
 
-    container.addEventListener('mousemove', move);
-    container.addEventListener('touchmove', move, { passive: true });
+    els.cmpContainer.addEventListener('mousedown', () => state.isSliding = true);
+    els.cmpContainer.addEventListener('touchstart', () => state.isSliding = true, { passive: true });
+    window.addEventListener('mouseup', () => state.isSliding = false);
+    window.addEventListener('touchend', () => state.isSliding = false);
+    els.cmpContainer.addEventListener('mousemove', handleSlide);
+    els.cmpContainer.addEventListener('touchmove', handleSlide, { passive: true });
 
 </script>
 </body>
