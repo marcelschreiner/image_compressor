@@ -179,6 +179,7 @@
             overflow: hidden;
             cursor: ew-resize;
             user-select: none;
+            -webkit-user-select: none;
         }
 
         .cmp-img {
@@ -189,6 +190,7 @@
             background-size: cover;
             background-repeat: no-repeat;
             background-position: center;
+            pointer-events: none;
         }
 
         .cmp-after { 
@@ -270,6 +272,7 @@
             text-transform: uppercase;
             letter-spacing: 0.1em;
         }
+
     </style>
 </head>
 <body>
@@ -362,6 +365,7 @@
     const sizeDiffEl = document.getElementById('size-diff');
 
     let originalFile = null;
+    let originalBaseName = 'image'; // Speichert den Namen ohne Endung
     let currentFormat = 'image/jpeg';
     let aspectRatio = 1;
     let isProcessing = false;
@@ -426,6 +430,9 @@
         if (!file || !file.type.startsWith('image/')) return;
         originalFile = file;
         
+        // Dateiname extrahieren (ohne Endung)
+        originalBaseName = file.name.replace(/\.[^/.]+$/, "");
+        
         const img = new Image();
         img.src = URL.createObjectURL(file);
         await img.decode();
@@ -451,8 +458,8 @@
     async function processImage() {
         if (!originalFile || isProcessing) return;
         isProcessing = true;
-        loader.style.display = 'flex';
         
+        loader.style.display = 'flex';
         // Start Pulsing
         newSizeEl.innerText = 'Berechne...';
         newSizeEl.classList.add('pulsing');
@@ -484,7 +491,8 @@
 
             dlBtn.href = url;
             const ext = currentFormat.split('/')[1].replace('jpeg', 'jpg');
-            dlBtn.download = `ms_optimized_${Date.now()}.${ext}`;
+            // Nutze den Originalnamen!
+            dlBtn.download = `${originalBaseName}-optimized.${ext}`;
 
         } catch (error) {
             console.error("Compression failed", error);
@@ -497,8 +505,20 @@
         }
     }
 
+    // --- Slider Interaction Logic (Drag instead of Hover) ---
+    let isSliding = false;
+
+    // Start Dragging
+    container.addEventListener('mousedown', () => isSliding = true);
+    container.addEventListener('touchstart', () => isSliding = true, { passive: true });
+
+    // Stop Dragging (Window level so it stops even if mouse leaves container)
+    window.addEventListener('mouseup', () => isSliding = false);
+    window.addEventListener('touchend', () => isSliding = false);
+
     const move = (e) => {
-        if (outputSection.style.display !== 'block') return;
+        if (!isSliding || outputSection.style.display !== 'block') return;
+        
         const rect = container.getBoundingClientRect();
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         const x = clientX - rect.left;
@@ -509,7 +529,7 @@
     };
 
     container.addEventListener('mousemove', move);
-    container.addEventListener('touchmove', move);
+    container.addEventListener('touchmove', move, { passive: true });
 
 </script>
 </body>
