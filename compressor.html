@@ -64,7 +64,7 @@
         }
 
         #dropzone svg { opacity: 0.6; }
-        #dropzone p { color: var(--text); font-size: 0.9rem; }
+        #dropzone p { color: var(--text); font-size: 0.9rem; transition: color 0.3s; }
         #dropzone span { font-size: 0.75rem; color: var(--muted); }
         #file-input { display: none; }
 
@@ -281,9 +281,9 @@
 
     <div id="dropzone">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent)"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        <p>Bild hierher ziehen</p>
+        <p id="dropzone-text">Bild hierher ziehen</p>
         <span>WebP, JPG oder PNG bis 10MB</span>
-        <input type="file" id="file-input" accept="image/*" />
+        <input type="file" id="file-input" accept="image/jpeg, image/png, image/webp" />
     </div>
 
     <div id="output-section">
@@ -303,9 +303,9 @@
             <div class="card">
                 <label class="lbl">Grösse (px)</label>
                 <div class="res-row">
-                    <input type="number" id="w-input" class="res-inp" placeholder="W">
+                    <input type="number" id="w-input" class="res-inp" placeholder="W" min="1">
                     <span style="color:var(--muted)">×</span>
-                    <input type="number" id="h-input" class="res-inp" placeholder="H">
+                    <input type="number" id="h-input" class="res-inp" placeholder="H" min="1">
                 </div>
             </div>
         </div>
@@ -355,6 +355,7 @@
     // --- 1. DOM Elements (Cached for Performance & Maintenance) ---
     const els = {
         dropzone: document.getElementById('dropzone'),
+        dropzoneText: document.getElementById('dropzone-text'),
         fileInput: document.getElementById('file-input'),
         outputSection: document.getElementById('output-section'),
         qSlider: document.getElementById('q-slider'),
@@ -386,7 +387,9 @@
         format: 'image/jpeg',
         aspectRatio: 1,
         isProcessing: false,
-        isSliding: false
+        isSliding: false,
+        origUrl: null, // Memory Management
+        newUrl: null   // Memory Management
     };
 
     // --- 3. Helper Functions (DRY) ---
@@ -427,10 +430,21 @@
         };
     });
 
-    // Unify Dimension Inputs
+    // Unify Dimension Inputs with Defensive Validation
     const updateDimensions = (isWidthChanged) => {
-        if (isWidthChanged) els.hInput.value = Math.round(els.wInput.value / state.aspectRatio);
-        else els.wInput.value = Math.round(els.hInput.value * state.aspectRatio);
+        let w = parseInt(els.wInput.value);
+        let h = parseInt(els.hInput.value);
+        
+        // Defensive Input Validation: Verhindere NaN, negative Zahlen oder 0
+        if (isWidthChanged) {
+            if (isNaN(w) || w <= 0) w = 1;
+            els.wInput.value = w;
+            els.hInput.value = Math.round(w / state.aspectRatio) || 1;
+        } else {
+            if (isNaN(h) || h <= 0) h = 1;
+            els.hInput.value = h;
+            els.wInput.value = Math.round(h * state.aspectRatio) || 1;
+        }
         processImage();
     };
     els.wInput.onchange = () => updateDimensions(true);
@@ -440,12 +454,30 @@
 
     // --- 5. Core Logic ---
     async function handleFile(file) {
-        if (!file || !file.type.startsWith('image/')) return;
+        if (!file) return;
+
+        // Defensive Validation: Datei-Typ und Grösse prüfen
+        els.dropzoneText.style.color = 'var(--text)'; // Reset Farbe
+        if (!file.type.startsWith('image/')) {
+            els.dropzoneText.innerText = 'Fehler: Bitte nur Bilder hochladen!';
+            els.dropzoneText.style.color = '#e57373';
+            return;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+            els.dropzoneText.innerText = 'Fehler: Bild ist grösser als 10MB!';
+            els.dropzoneText.style.color = '#e57373';
+            return;
+        }
+
         state.originalFile = file;
         state.baseName = file.name.replace(/\.[^/.]+$/, "");
         
+        // Memory Management: Altes Original-Bild aus dem Speicher löschen
+        if (state.origUrl) URL.revokeObjectURL(state.origUrl);
+        state.origUrl = URL.createObjectURL(file);
+        
         const img = new Image();
-        img.src = URL.createObjectURL(file);
+        img.src = state.origUrl;
         await img.decode();
         
         state.aspectRatio = img.width / img.height;
@@ -456,7 +488,7 @@
         els.origSize.innerText = formatBytes(file.size);
         els.origDim.innerText = `${img.width} × ${img.height} px`;
         
-        els.imgBefore.style.backgroundImage = `url(${img.src})`;
+        els.imgBefore.style.backgroundImage = `url(${state.origUrl})`;
         
         els.dropzone.style.display = 'none';
         els.outputSection.style.display = 'block';
@@ -475,6 +507,7 @@
         els.loader.innerText = 'Wird optimiert... 0%';
         els.loader.style.display = 'flex';
         els.newSize.innerText = 'Berechne...';
+        els.newSize.style.color = 'var(--accent)'; // Reset Farbe bei vorherigem Fehler
         els.newSize.classList.add('pulsing');
         els.sizeDiff.innerText = '';
 
@@ -488,33 +521,45 @@
         }, 120);
 
         try {
+            // Defensive Input Werte (Sicherheitshalber nochmal vor dem Senden an die API prüfen)
+            let safeQuality = parseInt(els.qSlider.value) / 100;
+            if (isNaN(safeQuality) || safeQuality <= 0 || safeQuality > 1) safeQuality = 0.8;
+            let safeW = parseInt(els.wInput.value) || 1;
+            let safeH = parseInt(els.hInput.value) || 1;
+
             const options = {
                 maxSizeMB: 10,
-                maxWidthOrHeight: Math.max(els.wInput.value, els.hInput.value),
+                maxWidthOrHeight: Math.max(safeW, safeH),
                 useWebWorker: true,
-                initialQuality: els.qSlider.value / 100,
+                initialQuality: safeQuality,
                 fileType: state.format,
                 onProgress: (progress) => { actualProgress = progress; }
             };
 
             const compressedBlob = await imageCompression(state.originalFile, options);
-            const url = URL.createObjectURL(compressedBlob);
+            
+            // Memory Management: Altes optimiertes Bild aus dem Speicher löschen
+            if (state.newUrl) URL.revokeObjectURL(state.newUrl);
+            state.newUrl = URL.createObjectURL(compressedBlob);
             
             els.newFmt.innerText = getFmtName(state.format);
-            els.imgAfter.style.backgroundImage = `url(${url})`;
+            els.imgAfter.style.backgroundImage = `url(${state.newUrl})`;
             els.newSize.innerText = formatBytes(compressedBlob.size);
-            els.newDim.innerText = `${els.wInput.value} × ${els.hInput.value} px`;
+            els.newDim.innerText = `${safeW} × ${safeH} px`;
             
             const saved = ((compressedBlob.size - state.originalFile.size) / state.originalFile.size) * 100;
             els.sizeDiff.innerText = (saved > 0 ? '+' : '') + saved.toFixed(1) + '%';
             els.sizeDiff.style.color = saved <= 0 ? '#81c784' : '#e57373';
 
-            els.dlBtn.href = url;
+            els.dlBtn.href = state.newUrl;
             els.dlBtn.download = `${state.baseName}-optimized.${getFmtExt(state.format)}`;
 
         } catch (error) {
             console.error("Compression failed", error);
-            els.newSize.innerText = 'Fehler';
+            els.newSize.innerText = 'Fehlgeschlagen';
+            els.newSize.style.color = '#e57373';
+            els.sizeDiff.innerText = 'Fehler aufgetreten.';
+            els.sizeDiff.style.color = '#e57373';
         } finally {
             state.isProcessing = false;
             clearInterval(progressInterval);
