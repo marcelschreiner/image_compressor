@@ -110,6 +110,7 @@
             background: var(--border);
             border-radius: 2px;
             outline: none;
+            transition: opacity 0.3s;
         }
 
         input[type="range"]::-webkit-slider-thumb {
@@ -119,6 +120,14 @@
             background: var(--accent);
             border-radius: 50%;
             cursor: pointer;
+        }
+        
+        input[type="range"]:disabled {
+            cursor: not-allowed;
+        }
+        input[type="range"]:disabled::-webkit-slider-thumb {
+            background: var(--muted);
+            cursor: not-allowed;
         }
 
         .res-row { display: flex; align-items: center; gap: 8px; }
@@ -277,7 +286,7 @@
 <body>
 
 <div class="app">
-    <h1><ms/> Image Optimizer</h1>
+    <h1><span>&lt;ms/&gt;</span> Image Optimizer</h1>
 
     <div id="dropzone">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent)"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -326,7 +335,7 @@
             </div>
         </div>
 
-        <div class="cmp-container" id="cmp-container">
+        <div class="cmp-container" id="cmp-container" aria-label="Vorher und Nachher Bildvergleich">
             <div class="loading-overlay" id="loader">Wird optimiert... 0%</div>
             <div class="badge badge-before">VORHER</div>
             <div class="badge badge-after">NACHHER</div>
@@ -350,9 +359,11 @@
     </div>
 </div>
 
+<!-- Removed integrity attribute that was causing the script to be blocked by the browser -->
 <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
+
 <script>
-    // --- 1. DOM Elements (Cached for Performance & Maintenance) ---
+    // --- 1. DOM Elements ---
     const els = {
         dropzone: document.getElementById('dropzone'),
         dropzoneText: document.getElementById('dropzone-text'),
@@ -388,11 +399,13 @@
         aspectRatio: 1,
         isProcessing: false,
         isSliding: false,
-        origUrl: null, // Memory Management
-        newUrl: null   // Memory Management
+        origUrl: null,
+        newUrl: null
     };
 
-    // --- 3. Helper Functions (DRY) ---
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+
+    // --- 3. Helper Functions ---
     const getFmtExt = (mime) => mime.split('/')[1].replace('jpeg', 'jpg');
     const getFmtName = (mime) => getFmtExt(mime).toUpperCase();
     
@@ -409,33 +422,74 @@
         els.imgBefore.style.width = els.cmpContainer.offsetWidth + 'px';
     };
 
+    function debounce(func, wait) {
+        let timeout;
+        return function(...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func(...args), wait);
+        };
+    }
+    const debouncedProcessImage = debounce(() => processImage(), 300);
+
     // --- 4. Event Listeners ---
     els.dropzone.onclick = () => els.fileInput.click();
     els.fileInput.onchange = (e) => handleFile(e.target.files[0]);
-    els.resetBtn.onclick = () => location.reload();
+    
+    els.resetBtn.onclick = (e) => {
+        e.preventDefault();
+        if (state.origUrl) URL.revokeObjectURL(state.origUrl);
+        if (state.newUrl) URL.revokeObjectURL(state.newUrl);
+        
+        state.originalFile = null;
+        els.fileInput.value = '';
+        els.outputSection.style.display = 'none';
+        els.dropzone.style.display = 'flex';
+        els.dropzoneText.innerText = 'Bild hierher ziehen';
+        els.dropzoneText.style.color = 'var(--text)';
+        
+        els.cmpClipper.style.width = '50%';
+        els.cmpHandle.style.left = '50%';
+    };
 
     els.dropzone.ondragover = (e) => { e.preventDefault(); els.dropzone.classList.add('drag'); };
     els.dropzone.ondragleave = () => els.dropzone.classList.remove('drag');
-    els.dropzone.ondrop = (e) => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); };
+    els.dropzone.ondrop = (e) => { 
+        e.preventDefault(); 
+        els.dropzone.classList.remove('drag');
+        handleFile(e.dataTransfer.files[0]); 
+    };
 
-    els.qSlider.oninput = () => els.qLabel.innerText = els.qSlider.value + '%';
-    els.qSlider.onchange = () => processImage();
+    els.qSlider.oninput = () => {
+        if (state.format !== 'image/png') {
+            els.qLabel.innerText = els.qSlider.value + '%';
+        }
+    };
+    els.qSlider.onchange = () => debouncedProcessImage();
     
     els.fmtBtns.forEach(btn => {
         btn.onclick = () => {
             document.querySelector('.fmt-btn.active').classList.remove('active');
             btn.classList.add('active');
             state.format = btn.dataset.fmt;
-            processImage();
+            
+            if (state.format === 'image/png') {
+                els.qSlider.disabled = true;
+                els.qSlider.style.opacity = '0.4';
+                els.qLabel.innerText = 'N/A';
+            } else {
+                els.qSlider.disabled = false;
+                els.qSlider.style.opacity = '1';
+                els.qLabel.innerText = els.qSlider.value + '%';
+            }
+            
+            debouncedProcessImage();
         };
     });
 
-    // Unify Dimension Inputs with Defensive Validation
     const updateDimensions = (isWidthChanged) => {
         let w = parseInt(els.wInput.value);
         let h = parseInt(els.hInput.value);
         
-        // Defensive Input Validation: Verhindere NaN, negative Zahlen oder 0
         if (isWidthChanged) {
             if (isNaN(w) || w <= 0) w = 1;
             els.wInput.value = w;
@@ -445,7 +499,7 @@
             els.hInput.value = h;
             els.wInput.value = Math.round(h * state.aspectRatio) || 1;
         }
-        processImage();
+        debouncedProcessImage();
     };
     els.wInput.onchange = () => updateDimensions(true);
     els.hInput.onchange = () => updateDimensions(false);
@@ -456,10 +510,9 @@
     async function handleFile(file) {
         if (!file) return;
 
-        // Defensive Validation: Datei-Typ und Grösse prüfen
-        els.dropzoneText.style.color = 'var(--text)'; // Reset Farbe
-        if (!file.type.startsWith('image/')) {
-            els.dropzoneText.innerText = 'Fehler: Bitte nur Bilder hochladen!';
+        els.dropzoneText.style.color = 'var(--text)';
+        if (!allowedTypes.includes(file.type)) {
+            els.dropzoneText.innerText = 'Fehler: Bitte nur JPG, PNG oder WebP!';
             els.dropzoneText.style.color = '#e57373';
             return;
         }
@@ -472,7 +525,6 @@
         state.originalFile = file;
         state.baseName = file.name.replace(/\.[^/.]+$/, "");
         
-        // Memory Management: Altes Original-Bild aus dem Speicher löschen
         if (state.origUrl) URL.revokeObjectURL(state.origUrl);
         state.origUrl = URL.createObjectURL(file);
         
@@ -507,7 +559,7 @@
         els.loader.innerText = 'Wird optimiert... 0%';
         els.loader.style.display = 'flex';
         els.newSize.innerText = 'Berechne...';
-        els.newSize.style.color = 'var(--accent)'; // Reset Farbe bei vorherigem Fehler
+        els.newSize.style.color = 'var(--accent)';
         els.newSize.classList.add('pulsing');
         els.sizeDiff.innerText = '';
 
@@ -521,9 +573,9 @@
         }, 120);
 
         try {
-            // Defensive Input Werte (Sicherheitshalber nochmal vor dem Senden an die API prüfen)
-            let safeQuality = parseInt(els.qSlider.value) / 100;
+            let safeQuality = state.format === 'image/png' ? 1 : (parseInt(els.qSlider.value) / 100);
             if (isNaN(safeQuality) || safeQuality <= 0 || safeQuality > 1) safeQuality = 0.8;
+            
             let safeW = parseInt(els.wInput.value) || 1;
             let safeH = parseInt(els.hInput.value) || 1;
 
@@ -538,14 +590,17 @@
 
             const compressedBlob = await imageCompression(state.originalFile, options);
             
-            // Memory Management: Altes optimiertes Bild aus dem Speicher löschen
             if (state.newUrl) URL.revokeObjectURL(state.newUrl);
             state.newUrl = URL.createObjectURL(compressedBlob);
             
+            const actualImg = new Image();
+            actualImg.src = state.newUrl;
+            await actualImg.decode();
+
             els.newFmt.innerText = getFmtName(state.format);
             els.imgAfter.style.backgroundImage = `url(${state.newUrl})`;
             els.newSize.innerText = formatBytes(compressedBlob.size);
-            els.newDim.innerText = `${safeW} × ${safeH} px`;
+            els.newDim.innerText = `${actualImg.width} × ${actualImg.height} px`;
             
             const saved = ((compressedBlob.size - state.originalFile.size) / state.originalFile.size) * 100;
             els.sizeDiff.innerText = (saved > 0 ? '+' : '') + saved.toFixed(1) + '%';
