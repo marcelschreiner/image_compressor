@@ -330,7 +330,7 @@
         </div>
 
         <div class="cmp-container" id="cmp-container">
-            <div class="loading-overlay" id="loader">Wird optimiert...</div>
+            <div class="loading-overlay" id="loader">Wird optimiert... 0%</div>
             <div class="badge badge-before">VORHER</div>
             <div class="badge badge-after">NACHHER</div>
             
@@ -464,11 +464,27 @@
         if (!originalFile || isProcessing) return;
         isProcessing = true;
         
+        let actualProgress = 0;
+        let simProgress = 0;
+        
+        loader.innerText = 'Wird optimiert... 0%';
         loader.style.display = 'flex';
         // Start Pulsing
         newSizeEl.innerText = 'Berechne...';
         newSizeEl.classList.add('pulsing');
         sizeDiffEl.innerText = '';
+
+        // UX-Trick: Sanfter Fortschritt
+        const progressInterval = setInterval(() => {
+            if (simProgress < actualProgress) {
+                // Schnell aufholen, wenn die Library echte neue Daten liefert
+                simProgress += Math.max(1, Math.round((actualProgress - simProgress) / 2));
+            } else if (simProgress < 95) {
+                // Langsam weiterzählen, damit das Tool nicht "tot" wirkt
+                simProgress += 1;
+            }
+            loader.innerText = `Wird optimiert... ${simProgress}%`;
+        }, 120);
 
         try {
             const options = {
@@ -476,7 +492,11 @@
                 maxWidthOrHeight: Math.max(wInput.value, hInput.value),
                 useWebWorker: true,
                 initialQuality: qSlider.value / 100,
-                fileType: currentFormat
+                fileType: currentFormat,
+                // Echten Fortschritt abgreifen
+                onProgress: (progress) => {
+                    actualProgress = progress;
+                }
             };
 
             const compressedBlob = await imageCompression(originalFile, options);
@@ -504,6 +524,7 @@
             newSizeEl.innerText = 'Fehler';
         } finally {
             isProcessing = false;
+            clearInterval(progressInterval); // Timer stoppen
             loader.style.display = 'none';
             // Stop Pulsing
             newSizeEl.classList.remove('pulsing');
