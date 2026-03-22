@@ -96,6 +96,12 @@
             margin-bottom: 12px;
         }
 
+        .lbl-flex {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
         /* Inputs */
         input[type="range"] {
             -webkit-appearance: none;
@@ -149,10 +155,11 @@
 
         /* Stats */
         .stat-val { font-size: 1.1rem; font-weight: 600; margin-bottom: 2px; }
-        .stat-sub { font-size: 0.75rem; color: var(--muted); }
+        .stat-sub { font-size: 0.75rem; color: var(--muted); display: flex; justify-content: space-between; }
         .gold { color: var(--accent); }
+        .fmt-badge { font-size: 0.65rem; opacity: 0.5; font-weight: 400; }
 
-        /* Comparison Slider Fix */
+        /* Comparison Slider */
         .cmp-container {
             position: relative;
             width: 100%;
@@ -174,27 +181,24 @@
             background-position: center;
         }
 
-        /* Das Bild im Hintergrund (Nachher) nimmt immer 100% ein */
         .cmp-after { 
             z-index: 1; 
             width: 100%;
         }
 
-        /* Der Clipper (Vorher) beschneidet nur die Sichtbarkeit */
         .cmp-before-clipper {
             position: absolute;
             top: 0;
             left: 0;
             height: 100%;
-            width: 50%; /* Wird per JS gesteuert */
+            width: 50%;
             overflow: hidden;
             z-index: 2;
             border-right: 2px solid var(--accent);
         }
 
-        /* Das Vorher-Bild im Clipper muss immer die volle Breite des Hauptcontainers behalten */
         .cmp-before-img {
-            width: 100%; /* Wird initial per JS auf die exakte Pixelbreite des Containers gesetzt */
+            width: 100%;
         }
 
         .cmp-handle {
@@ -296,14 +300,17 @@
 
         <div class="grid-controls" style="grid-template-columns: 1fr 1fr;">
             <div class="card">
-                <label class="lbl">Original</label>
+                <label class="lbl lbl-flex">Original <span id="orig-fmt" class="fmt-badge"></span></label>
                 <div id="orig-size" class="stat-val">—</div>
                 <div id="orig-dim" class="stat-sub">—</div>
             </div>
             <div class="card">
-                <label class="lbl gold">Optimiert</label>
+                <label class="lbl gold lbl-flex">Optimiert <span id="new-fmt" class="fmt-badge"></span></label>
                 <div id="new-size" class="stat-val gold">—</div>
-                <div id="new-dim" class="stat-sub">—</div>
+                <div class="stat-sub">
+                    <span id="new-dim">—</span>
+                    <span id="size-diff" class="gold" style="font-weight: 600;"></span>
+                </div>
             </div>
         </div>
 
@@ -382,7 +389,6 @@
         processImage();
     };
 
-    // Fix: Resize the "before" image to match container width on window resize
     window.addEventListener('resize', () => {
         if (originalFile) syncSliderWidth();
     });
@@ -390,6 +396,15 @@
     function syncSliderWidth() {
         const width = container.offsetWidth;
         beforeImg.style.width = width + 'px';
+    }
+
+    function formatBytes(bytes, decimals = 2) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
     }
 
     // --- Logic ---
@@ -405,7 +420,9 @@
         wInput.value = img.width;
         hInput.value = img.height;
         
-        document.getElementById('orig-size').innerText = (file.size / 1024 / 1024).toFixed(2) + ' MB';
+        const origFmtName = file.type.split('/')[1].toUpperCase().replace('JPEG', 'JPG');
+        document.getElementById('orig-fmt').innerText = origFmtName;
+        document.getElementById('orig-size').innerText = formatBytes(file.size);
         document.getElementById('orig-dim').innerText = `${img.width} × ${img.height} px`;
         
         beforeImg.style.backgroundImage = `url(${img.src})`;
@@ -434,10 +451,19 @@
             const compressedBlob = await imageCompression(originalFile, options);
             const url = URL.createObjectURL(compressedBlob);
             
+            // Format & Size Update
+            const newFmtName = currentFormat.split('/')[1].toUpperCase().replace('JPEG', 'JPG');
+            document.getElementById('new-fmt').innerText = newFmtName;
             document.getElementById('img-after').style.backgroundImage = `url(${url})`;
-            document.getElementById('new-size').innerText = (compressedBlob.size / 1024 / 1024).toFixed(2) + ' MB';
+            document.getElementById('new-size').innerText = formatBytes(compressedBlob.size);
             document.getElementById('new-dim').innerText = `${wInput.value} × ${hInput.value} px`;
             
+            // Percentage calculation
+            const saved = ((compressedBlob.size - originalFile.size) / originalFile.size) * 100;
+            const diffEl = document.getElementById('size-diff');
+            diffEl.innerText = (saved > 0 ? '+' : '') + saved.toFixed(1) + '%';
+            diffEl.style.color = saved <= 0 ? '#81c784' : '#e57373'; // Green if saved, red if larger
+
             dlBtn.href = url;
             const ext = currentFormat.split('/')[1].replace('jpeg', 'jpg');
             dlBtn.download = `ms_optimized_${Date.now()}.${ext}`;
@@ -450,7 +476,6 @@
         }
     }
 
-    // --- Improved Comparison Slider Logic ---
     const move = (e) => {
         if (outputSection.style.display !== 'block') return;
         const rect = container.getBoundingClientRect();
