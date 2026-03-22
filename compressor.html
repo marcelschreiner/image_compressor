@@ -179,6 +179,7 @@
             overflow: hidden;
             cursor: ew-resize;
             user-select: none;
+            /* Verhindert Textmarkierung beim Ziehen */
             -webkit-user-select: none;
         }
 
@@ -190,6 +191,7 @@
             background-size: cover;
             background-repeat: no-repeat;
             background-position: center;
+            /* Verhindert "Ghost-Dragging" des Bildes selbst */
             pointer-events: none;
         }
 
@@ -339,7 +341,10 @@
             </div>
 
             <div class="cmp-handle" id="cmp-handle">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="9 18 3 12 9 6"/>
+                    <polyline points="15 6 21 12 15 18"/>
+                </svg>
             </div>
         </div>
 
